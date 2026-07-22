@@ -225,10 +225,10 @@ header{grid-column:1/-1;padding:0 24px;height:52px;display:flex;align-items:cent
 
   <!-- API KEY BOX -->
   <div class="api-box" id="apiBox">
-    <div class="api-box-title amber">🔑 Claude API Key</div>
-    <div class="api-box-sub">Required for AI features.<br/>Get free key at <a href="https://console.anthropic.com" target="_blank">console.anthropic.com</a></div>
+    <div class="api-box-title amber">🔑 Gemini API Key</div>
+    <div class="api-box-sub">Required for AI features.<br/>Get free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
     <div class="api-input-wrap">
-      <input class="api-inp" id="apiKeyInput" type="password" placeholder="sk-ant-api03-..."
+      <input class="api-inp" id="apiKeyInput" type="password" placeholder="AIzaSy-..."
         onkeydown="if(event.key==='Enter') connectApiKey()"/>
       <button class="api-eye" onclick="toggleApiVis()">👁</button>
     </div>
@@ -273,9 +273,9 @@ header{grid-column:1/-1;padding:0 24px;height:52px;display:flex;align-items:cent
   <div class="welcome">
     <div class="w-icon">🎯</div>
     <div class="w-title">Your US Client Hunter</div>
-    <div class="w-sub">Add your Claude API key → Find US businesses → AI analyzes them → Get personalized pitch + outreach emails automatically.</div>
+    <div class="w-sub">Add your Gemini API key → Find US businesses → AI analyzes them → Get personalized pitch + outreach emails automatically.</div>
     <div class="w-grid">
-      <div class="w-card"><div class="wc-icon">🔑</div><div class="wc-title">Step 1</div><div class="wc-sub">Add your Claude API key in the left panel</div></div>
+      <div class="w-card"><div class="wc-icon">🔑</div><div class="wc-title">Step 1</div><div class="wc-sub">Add your Gemini API key in the left panel</div></div>
       <div class="w-card"><div class="wc-icon">🔍</div><div class="wc-title">Step 2</div><div class="wc-sub">Search any US business type + city</div></div>
       <div class="w-card"><div class="wc-icon">✉️</div><div class="wc-title">Step 3</div><div class="wc-sub">Click any lead → Get full pitch + emails</div></div>
     </div>
@@ -306,15 +306,25 @@ function getKey(){ return localStorage.getItem('ch_claudekey') || ''; }
 function storeKey(k){ localStorage.setItem('ch_claudekey', k.trim()); }
 function removeKey(){ localStorage.removeItem('ch_claudekey'); }
 
-// Build headers for every Claude API call
-// anthropic-dangerous-direct-browser-access is required for browser-to-API calls
-function buildHeaders(key){
-  return {
-    'Content-Type': 'application/json',
-    'x-api-key': key || getKey(),
-    'anthropic-version': '2023-06-01',
-    
-  };
+// Build Gemini API URL
+function geminiUrl(key){
+  return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=' + (key || getKey());
+}
+// Convert Claude-style messages to Gemini format and call API
+async function callGemini(prompt, key){
+  const url = geminiUrl(key);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, maxOutputTokens: 8192 }
+    })
+  });
+  const data = await res.json();
+  if(data.error) throw new Error(data.error.message);
+  const text = data.candidates[0].content.parts[0].text;
+  return text;
 }
 
 function toggleApiVis(){
@@ -337,7 +347,7 @@ async function connectApiKey(){
     return;
   }
   // Accept all valid Claude key formats
-  if(!key.startsWith('sk-ant-') && !key.startsWith('sk-')){
+  if(!key.startsWith('AIza')){
     statusEl.style.color = 'var(--red)';
     statusEl.textContent = 'Invalid key format. Please check your key.';
     return;
@@ -349,13 +359,13 @@ async function connectApiKey(){
   statusEl.textContent = 'Checking key...';
 
   try {
-    const res = await fetch('https://noisy-math-baa5.sjapharmiah786.workers.dev/', {
+    const testUrl = geminiUrl(key);
+    const res = await fetch(testUrl, {
       method: 'POST',
-      headers: buildHeaders(key),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 10,
-        messages: [{ role: 'user', content: 'Hi' }]
+        contents: [{ parts: [{ text: 'Hi' }] }],
+        generationConfig: { maxOutputTokens: 10 }
       })
     });
 
@@ -404,7 +414,7 @@ function setConnectedState(){
   }
 
   if(headerStatus) headerStatus.textContent = 'Claude AI Connected';
-  showToast('✅ Claude API connected! Start finding leads.');
+  showToast('✅ Gemini API connected! Start finding leads.');
 }
 
 function resetApiKey(){
@@ -443,7 +453,7 @@ window.addEventListener('load', () => {
 // ── FIND LEADS ──
 async function findLeads(){
   if(!getKey()){
-    showToast('⚠️ Add your Claude API key first');
+    showToast('⚠️ Add your Gemini API key first');
     document.getElementById('apiKeyInput').focus();
     return;
   }
@@ -458,19 +468,11 @@ async function findLeads(){
   showLoading(`Finding ${biz}s in ${city}...`, 'Searching · Scoring leads · Analyzing web presence');
 
   try {
-    const res = await fetch('https://noisy-math-baa5.sjapharmiah786.workers.dev/', {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `You are a lead researcher for a web designer targeting US small businesses.
+    const prompt = `You are a lead researcher for a web designer targeting US small businesses.
 
 Generate ${count} realistic ${biz} leads in ${city} that need a website or better web presence.
 
-Return ONLY a JSON array, no markdown, no explanation. Each object:
+Return ONLY a JSON array, no markdown, no backticks, no explanation. Each object:
 {
   "name": "Business name",
   "owner": "Owner first name only",
@@ -484,16 +486,11 @@ Return ONLY a JSON array, no markdown, no explanation. Each object:
   "years_in_business": 1 to 20,
   "opportunity_score": 55 to 98,
   "pain_point": "Their single biggest problem a website solves"
-}`
-        }]
-      })
-    });
+}`;
 
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message);
-
-    let raw = data.content[0].text.trim().replace(/```json|```/g,'').trim();
-    leads = JSON.parse(raw).map((l,i) => ({
+    const raw = await callGemini(prompt);
+    const clean = raw.trim().replace(/```json|```/g,'').trim();
+    leads = JSON.parse(clean).map((l,i) => ({
       ...l,
       id: Date.now()+i,
       status: 'new',
@@ -533,15 +530,8 @@ async function openLead(id){
   const myPrice = document.getElementById('myPrice').value || '$299';
 
   try {
-    const res = await fetch('https://noisy-math-baa5.sjapharmiah786.workers.dev/', {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `You are a web design sales consultant analyzing a US business for outreach.
+    // Using Gemini API
+    const analysisPrompt = `You are a web design sales consultant analyzing a US business for outreach.
 
 Business: ${lead.name} | Type: ${lead.type} | City: ${lead.city}
 Owner: ${lead.owner} | Website: ${lead.website_status}
@@ -550,7 +540,7 @@ Pain: ${lead.pain_point}
 
 Freelancer: Name=${myName}, Price=${myPrice}, Service=Professional website design
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no markdown, no backticks:
 {
   "website_verdict": "one sentence verdict",
   "website_score": 1-100,
@@ -569,16 +559,11 @@ Return ONLY valid JSON:
   "email_message": "complete cold email under 150 words. Hi [Owner], personalized, mention specific problem, your service, value, price ${myPrice}, soft CTA",
   "dm_message": "Instagram/Facebook DM under 80 words, casual but professional",
   "followup_message": "3-day follow-up under 60 words"
-}`
-        }]
-      })
-    });
+}`;
 
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message);
-
-    let raw = data.content[0].text.trim().replace(/```json|```/g,'').trim();
-    lead.analysis = JSON.parse(raw);
+    const rawAnalysis = await callGemini(analysisPrompt);
+    const cleanAnalysis = rawAnalysis.trim().replace(/```json|```/g,'').trim();
+    lead.analysis = JSON.parse(cleanAnalysis);
     lead.status = 'analyzed';
     updateLeadBadge(id, 'analyzed');
 
@@ -757,37 +742,24 @@ async function generateDemo(id){
   if(area) area.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--green);font-size:13px"><div class="loader" style="width:20px;height:20px;border-width:2px"></div>Building demo website for ${lead.name}...</div>`;
 
   try {
-    const res = await fetch('https://noisy-math-baa5.sjapharmiah786.workers.dev/', {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `Build a complete professional single-page HTML website for this US business.
+    const demoPrompt = `Build a complete professional single-page HTML website for this US business.
 
-Business: ${lead.name} | Type: ${lead.type} | City: ${lead.city}
-Phone: ${lead.phone} | Email: ${lead.email}
-Rating: ${lead.google_rating}★ | Reviews: ${lead.review_count} | Years: ${lead.years_in_business}
+Business: \${lead.name} | Type: \${lead.type} | City: \${lead.city}
+Phone: \${lead.phone} | Email: \${lead.email}
+Rating: \${lead.google_rating}★ | Reviews: \${lead.review_count} | Years: \${lead.years_in_business}
 
 Requirements:
-- Complete self-contained HTML with all CSS in <style> tags
-- Professional modern design appropriate for a ${lead.type}
+- Complete self-contained HTML with all CSS in style tags
+- Professional modern design appropriate for a \${lead.type}
 - Sections: Hero, Services, About/Stats, Testimonials (3), Contact with phone+email
 - Mobile responsive with good color scheme
 - Google Fonts from fonts.googleapis.com
-- Clear "Book Now" or "Contact Us" CTA button
+- Clear Book Now or Contact Us CTA button
 - Use emojis instead of images
-- Look like a $500+ professional website
-- Return ONLY the complete HTML starting with <!DOCTYPE html>`
-        }]
-      })
-    });
+- Look like a 500 dollar professional website
+- Return ONLY the complete HTML starting with DOCTYPE html`;
 
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message);
-    const html = data.content[0].text.trim();
+    const html = await callGemini(demoPrompt);
     lead.demoHTML = html;
     currentDemoHTML = html;
     openDemoModal(id);
@@ -809,20 +781,12 @@ async function generateBA(id){
   if(area) area.innerHTML = `<div style="display:flex;align-items:center;gap:10px;color:var(--amber);font-size:13px"><div class="loader" style="width:20px;height:20px;border-width:2px;border-top-color:var(--amber)"></div>Analyzing ${lead.name}'s website...</div>`;
 
   try {
-    const res = await fetch('https://noisy-math-baa5.sjapharmiah786.workers.dev/', {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: `Create a before/after website analysis for sales pitch purposes.
+    const baPrompt = `Create a before/after website analysis for sales pitch purposes.
 
-Business: ${lead.name} | Type: ${lead.type} | City: ${lead.city}
-Current website: ${lead.website_status} | Known problems: ${(lead.analysis?.missing_features||[]).join(', ')}
+Business: \${lead.name} | Type: \${lead.type} | City: \${lead.city}
+Current website: \${lead.website_status} | Known problems: \${(lead.analysis?.missing_features||[]).join(', ')}
 
-Return ONLY valid JSON:
+Return ONLY valid JSON, no markdown, no backticks:
 {
   "before_score": 15-45,
   "before_issues": [
@@ -840,15 +804,11 @@ Return ONLY valid JSON:
   ],
   "expected_results": ["result with number","result with number","result with number"],
   "summary": "2 sentence transformation summary for pitch email"
-}`
-        }]
-      })
-    });
+}`;
 
-    const data = await res.json();
-    if(data.error) throw new Error(data.error.message);
-    let raw = data.content[0].text.trim().replace(/```json|```/g,'').trim();
-    lead.beforeAfter = JSON.parse(raw);
+    const rawBA = await callGemini(baPrompt);
+    const cleanBA = rawBA.trim().replace(/```json|```/g,'').trim();
+    lead.beforeAfter = JSON.parse(cleanBA);
     if(area) area.innerHTML = renderBAHTML(lead.beforeAfter, id);
 
   } catch(e) {
