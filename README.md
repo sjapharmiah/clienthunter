@@ -228,7 +228,7 @@ header{grid-column:1/-1;padding:0 24px;height:52px;display:flex;align-items:cent
     <div class="api-box-title amber">🔑 Gemini API Key</div>
     <div class="api-box-sub">Required for AI features.<br/>Get free key at <a href="https://aistudio.google.com" target="_blank">aistudio.google.com</a></div>
     <div class="api-input-wrap">
-      <input class="api-inp" id="apiKeyInput" type="password" placeholder="AIzaSy-..."
+      <input class="api-inp" id="apiKeyInput" type="password" placeholder="Paste your API key here..."
         onkeydown="if(event.key==='Enter') connectApiKey()"/>
       <button class="api-eye" onclick="toggleApiVis()">👁</button>
     </div>
@@ -308,7 +308,9 @@ function removeKey(){ localStorage.removeItem('ch_claudekey'); }
 
 // Build Gemini API URL
 function geminiUrl(key){
-  return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=' + (key || getKey());
+  const k = key || getKey();
+  // Support both old AIzaSy format and new format keys
+  return 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + k;
 }
 // Convert Claude-style messages to Gemini format and call API
 async function callGemini(prompt, key){
@@ -322,7 +324,13 @@ async function callGemini(prompt, key){
     })
   });
   const data = await res.json();
-  if(data.error) throw new Error(data.error.message);
+  if(data.error){
+    const msg = data.error.message || data.error.status || JSON.stringify(data.error);
+    throw new Error('Gemini Error: ' + msg);
+  }
+  if(!data.candidates || !data.candidates[0]){
+    throw new Error('No response from Gemini. Try again.');
+  }
   const text = data.candidates[0].content.parts[0].text;
   return text;
 }
@@ -346,10 +354,10 @@ async function connectApiKey(){
     statusEl.textContent = 'Please enter your API key.';
     return;
   }
-  // Accept all valid Claude key formats
-  if(!key.startsWith('AIza')){
+  // No format check - accept any key and let Gemini verify it
+  if(!key){
     statusEl.style.color = 'var(--red)';
-    statusEl.textContent = 'Invalid key format. Please check your key.';
+    statusEl.textContent = 'Please paste your API key first.';
     return;
   }
 
@@ -359,13 +367,14 @@ async function connectApiKey(){
   statusEl.textContent = 'Checking key...';
 
   try {
-    const testUrl = geminiUrl(key);
+    // Test key by making a real Gemini call
+    const testUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=' + key;
     const res = await fetch(testUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Hi' }] }],
-        generationConfig: { maxOutputTokens: 10 }
+        contents: [{ parts: [{ text: 'Say OK' }] }],
+        generationConfig: { maxOutputTokens: 5 }
       })
     });
 
@@ -373,7 +382,16 @@ async function connectApiKey(){
 
     if(data.error){
       statusEl.style.color = 'var(--red)';
-      statusEl.textContent = '❌ ' + (data.error.message || 'Invalid key. Try again.');
+      const errMsg = data.error.message || data.error.status || 'Key not accepted by Google.';
+      statusEl.textContent = '❌ ' + errMsg;
+      btn.textContent = '🔑 Connect API Key';
+      btn.disabled = false;
+      return;
+    }
+
+    if(!data.candidates || !data.candidates[0]){
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '❌ No response from Google. Try again.';
       btn.textContent = '🔑 Connect API Key';
       btn.disabled = false;
       return;
@@ -385,7 +403,7 @@ async function connectApiKey(){
 
   } catch(err) {
     statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '❌ Network error. Check internet.';
+    statusEl.textContent = '❌ Network error: ' + err.message;
     btn.textContent = '🔑 Connect API Key';
     btn.disabled = false;
   }
